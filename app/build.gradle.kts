@@ -51,6 +51,7 @@ dependencies {
     implementation(libs.androidx.ui.graphics)
     implementation(libs.androidx.ui.tooling.preview)
     implementation(libs.androidx.material3)
+    implementation("androidx.compose.material:material-icons-extended-android:1.6.7")
 
     // 新增 ViewModel 和 LiveData 的支援
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.1")

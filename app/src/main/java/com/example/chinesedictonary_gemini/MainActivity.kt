@@ -3,16 +3,18 @@ package com.example.chinesedictonary_gemini
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Book
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -23,6 +25,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
@@ -36,24 +39,34 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 
-// 主題顏色
-private val DarkBackgroundColor = Color(0xFF121212)
-private val DarkSurfaceColor = Color(0xFF1E1E1E)
-private val TextColor = Color.White
-private val TextColorSecondary = Color.Gray
-private val AccentColor = Color(0xFF3B82F6)
+// **電子紙專用主題：高對比白底黑字**
+private val EInkBackgroundColor = Color.White
+private val EInkSurfaceColor = Color.White
+private val EInkTextColor = Color.Black
+private val EInkTextColorSecondary = Color(0xFF555555) // 深灰色
+private val EInkBorderColor = Color(0xFFDDDDDD) // 淺灰色邊框
+
+private val EInkColorScheme = lightColorScheme(
+    background = EInkBackgroundColor,
+    surface = EInkSurfaceColor,
+    onBackground = EInkTextColor,
+    onSurface = EInkTextColor,
+    onSurfaceVariant = EInkTextColorSecondary,
+    primary = EInkTextColor, // 輸入框游標等強調色也用黑色
+    outline = EInkBorderColor
+)
+
 
 @Composable
-fun AppTheme(content: @Composable () -> Unit) {
+fun AppTheme(
+    // **電子紙專用：強制使用淺色主題**
+    darkTheme: Boolean = false,
+    content: @Composable () -> Unit
+) {
+    val colorScheme = EInkColorScheme
+
     MaterialTheme(
-        colorScheme = darkColorScheme(
-            background = DarkBackgroundColor,
-            surface = DarkSurfaceColor,
-            onBackground = TextColor,
-            onSurface = TextColor,
-            primary = AccentColor,
-        ),
-        // **關鍵修正：使用我們在 Type.kt 中定義的新字體主題**
+        colorScheme = colorScheme,
         typography = AppTypography,
         content = content
     )
@@ -91,7 +104,7 @@ fun DictionaryApp() {
             }
             null -> {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator()
+                    CircularProgressIndicator(color = EInkTextColor)
                 }
             }
         }
@@ -102,8 +115,6 @@ fun DictionaryApp() {
 
 @Composable
 fun SetupScreen(progress: Float, message: String) {
-    val animatedProgress by animateFloatAsState(targetValue = progress, label = "progressAnimation")
-
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -111,21 +122,25 @@ fun SetupScreen(progress: Float, message: String) {
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        CircularProgressIndicator(modifier = Modifier.size(48.dp))
+        CircularProgressIndicator(modifier = Modifier.size(60.dp), strokeWidth = 5.dp, color = EInkTextColor)
+        Spacer(modifier = Modifier.height(32.dp))
+        Text("首次設定", fontSize = 40.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground)
+        Spacer(modifier = Modifier.height(12.dp))
+        Text("正在為您準備辭典資料...", fontSize = 28.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
         Spacer(modifier = Modifier.height(24.dp))
-        Text("首次設定", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = TextColor)
-        Spacer(modifier = Modifier.height(8.dp))
-        Text("正在為您準備辭典資料...", fontSize = 14.sp, color = TextColorSecondary)
-        Spacer(modifier = Modifier.height(16.dp))
+
         LinearProgressIndicator(
-            progress = { animatedProgress },
+            progress = { progress },
             modifier = Modifier
                 .fillMaxWidth()
-                .height(8.dp)
-                .clip(CircleShape)
+                .height(12.dp)
+                .clip(RoundedCornerShape(6.dp)),
+            color = EInkTextColor,
+            trackColor = EInkBorderColor
         )
-        Spacer(modifier = Modifier.height(8.dp))
-        Text(message, fontSize = 12.sp, color = TextColorSecondary)
+        Spacer(modifier = Modifier.height(12.dp))
+
+        Text(message, fontSize = 24.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
@@ -138,8 +153,8 @@ fun SearchScreen(navController: NavController, viewModel: DictionaryViewModel) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("國語辭典", modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center) },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = DarkSurfaceColor)
+                title = { Text("國語辭典", modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center, fontSize = 32.sp, fontWeight = FontWeight.Bold) },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface)
             )
         }
     ) { paddingValues ->
@@ -147,31 +162,33 @@ fun SearchScreen(navController: NavController, viewModel: DictionaryViewModel) {
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
-                .padding(16.dp)
+                .padding(horizontal = 16.dp, vertical = 8.dp)
         ) {
-            TextField(
+            // **關鍵修正：改用 OutlinedTextField 並加大字體**
+            OutlinedTextField(
                 value = searchQuery,
                 onValueChange = { viewModel.onSearchQueryChanged(it) },
                 modifier = Modifier.fillMaxWidth(),
-                placeholder = { Text("請輸入詞語...") },
-                leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search Icon") },
+                textStyle = TextStyle(fontSize = 36.sp), // 字體加大
+                placeholder = { Text("請輸入詞語...", fontSize = 36.sp) }, // 字體加大
+                leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search Icon", modifier = Modifier.size(36.dp)) },
                 singleLine = true,
-                shape = RoundedCornerShape(8.dp),
-                colors = TextFieldDefaults.colors(
-                    focusedIndicatorColor = Color.Transparent,
-                    unfocusedIndicatorColor = Color.Transparent,
-                    disabledIndicatorColor = Color.Transparent
+                shape = RoundedCornerShape(12.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = EInkTextColor, // 選取時為黑色框線
+                    unfocusedBorderColor = EInkBorderColor, // 未選取時為灰色框線
+                    cursorColor = EInkTextColor
                 )
             )
             Spacer(modifier = Modifier.height(16.dp))
 
             Box(modifier = Modifier.fillMaxSize()) {
                 if (searchQuery.isBlank()) {
-                    Text("請開始輸入以查詢...", color = TextColorSecondary, modifier = Modifier.align(Alignment.TopCenter).padding(top = 24.dp))
+                    Text("請開始輸入以查詢...", fontSize = 28.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.align(Alignment.TopCenter).padding(top = 32.dp))
                 } else if (searchResults.isEmpty()) {
-                    Text("查無結果", color = TextColorSecondary, modifier = Modifier.align(Alignment.TopCenter).padding(top = 24.dp))
+                    Text("查無結果", fontSize = 28.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.align(Alignment.TopCenter).padding(top = 32.dp))
                 } else {
-                    LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         items(searchResults) { idiom ->
                             IdiomListItem(idiom = idiom, onClick = {
                                 navController.navigate("detail/${idiom.id}")
@@ -191,15 +208,18 @@ fun IdiomListItem(idiom: Idiom, onClick: () -> Unit) {
             .fillMaxWidth()
             .clickable(onClick = onClick),
         shape = RoundedCornerShape(8.dp),
-        colors = CardDefaults.cardColors(containerColor = DarkSurfaceColor)
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = BorderStroke(1.dp, EInkBorderColor)
     ) {
-        // **關鍵修正：移除來源標示，介面更簡潔**
-        Box(
+        Row(
             modifier = Modifier
-                .padding(16.dp)
-                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 24.dp)
+                .fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Text(idiom.term, fontSize = 18.sp)
+            Text(idiom.term, fontSize = 36.sp)
+            Icon(Icons.Default.ChevronRight, contentDescription = "查看詳情", tint = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
@@ -215,46 +235,55 @@ fun DetailScreen(navController: NavController, idiomId: Int, viewModel: Dictiona
                 title = { /* 標題留空 */ },
                 navigationIcon = {
                     IconButton(onClick = { navController.popBackStack() }) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", modifier = Modifier.size(36.dp))
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = DarkSurfaceColor)
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface)
             )
         }
     ) { paddingValues ->
         val currentIdiom = idiom
         if (currentIdiom != null) {
-            Column(
+            LazyColumn(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(paddingValues)
-                    .padding(16.dp)
+                    .padding(horizontal = 24.dp)
             ) {
-                // **關鍵修正：新增部首與筆畫顯示**
-                Row(verticalAlignment = Alignment.Bottom) {
-                    Text(currentIdiom.term, fontSize = 32.sp, fontWeight = FontWeight.Bold)
-                    if (currentIdiom.term.length == 1 && currentIdiom.radical != null && currentIdiom.strokeCount != null && currentIdiom.nonRadicalStrokeCount != null) {
-                        Text(
-                            text = "[${currentIdiom.radical}部-${currentIdiom.nonRadicalStrokeCount}畫-共${currentIdiom.strokeCount}畫]",
-                            fontSize = 16.sp,
-                            color = TextColorSecondary,
-                            modifier = Modifier.padding(start = 8.dp, bottom = 4.dp)
-                        )
+                item {
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Row(verticalAlignment = Alignment.Bottom) {
+                        Text(currentIdiom.term, fontSize = 64.sp, fontWeight = FontWeight.Bold)
+                        if (currentIdiom.term.length == 1 && currentIdiom.radical != null && currentIdiom.strokeCount != null && currentIdiom.nonRadicalStrokeCount != null) {
+                            Text(
+                                text = "[${currentIdiom.radical}部-${currentIdiom.nonRadicalStrokeCount}畫-共${currentIdiom.strokeCount}畫]",
+                                fontSize = 32.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(start = 12.dp, bottom = 8.dp)
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(currentIdiom.zhuyin, fontSize = 36.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(modifier = Modifier.height(24.dp))
+                }
+
+                item {
+                    Column {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Book, contentDescription = "詳細說明", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("詳細說明", fontSize = 28.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Bold)
+                        }
+                        Divider(modifier = Modifier.padding(vertical = 16.dp), color = EInkBorderColor)
+                        Text(currentIdiom.definition, fontSize = 36.sp, lineHeight = 56.sp)
                     }
                 }
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(currentIdiom.zhuyin, fontSize = 18.sp, color = TextColorSecondary)
-
-                Divider(modifier = Modifier.padding(vertical = 16.dp), color = Color.DarkGray)
-
-                Text("詳細說明", fontSize = 14.sp, color = TextColorSecondary, fontWeight = FontWeight.Bold)
-                Spacer(modifier = Modifier.height(8.dp))
-                // 字體大小已由 AppTypography 控制
-                Text(currentIdiom.definition, lineHeight = 28.sp)
+                item { Spacer(modifier = Modifier.height(24.dp)) }
             }
         } else {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator()
+                CircularProgressIndicator(color = EInkTextColor)
             }
         }
     }
@@ -281,13 +310,11 @@ fun AppNavigation(viewModel: DictionaryViewModel) {
 }
 
 // --- 預覽 (Preview) ---
-@Preview(showBackground = true, widthDp = 360, heightDp = 640)
+@Preview(showBackground = true, name = "電子紙預覽", widthDp = 380, heightDp = 800)
 @Composable
-fun DefaultPreview() {
-    AppTheme {
-        Box(modifier = Modifier.fillMaxSize().background(DarkBackgroundColor)) {
-            Text("預覽模式", color=Color.White, modifier = Modifier.align(Alignment.Center))
-        }
+fun EInkPreview() {
+    AppTheme(darkTheme = false) {
+        Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background))
     }
 }
 

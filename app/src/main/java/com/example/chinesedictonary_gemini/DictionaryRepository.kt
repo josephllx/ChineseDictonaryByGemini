@@ -8,15 +8,17 @@ import java.io.InputStream
 import java.net.URL
 import javax.net.ssl.HttpsURLConnection
 
-data class DictionarySource(val key: String, val url: String, val name: String)
+data class DictionarySource(val key: String, val url: String, val name: String, val approxSize: Int, val weight: Float)
 
 class DictionaryRepository(val idiomDao: IdiomDao) {
 
     private val TAG = "RepositoryDebug"
 
-    // **關鍵修正：只保留重編國語辭典**
+    // **關鍵更新：為每個辭典加入預估大小和進度權重**
     private val dictionarySources = listOf(
-        DictionarySource("revised", "https://raw.githubusercontent.com/g0v/moedict-data/master/dict-revised.json", "重編國語辭典")
+        DictionarySource("idioms", "https://raw.githubusercontent.com/g0v/moedict-data-tw/master/idiom.json", "成語典", 5000, 0.1f),
+        DictionarySource("concise", "https://raw.githubusercontent.com/g0v/moedict-data-tw/master/concised.json", "簡編本", 40000, 0.2f),
+        DictionarySource("revised", "https://raw.githubusercontent.com/g0v/moedict-data/master/dict-revised.json", "重編國語辭典", 163000, 0.6f)
     )
 
     suspend fun setupDatabaseIfNeeded(
@@ -26,13 +28,21 @@ class DictionaryRepository(val idiomDao: IdiomDao) {
             Log.d(TAG, "資料庫為空，開始執行首次設定。")
             try {
                 val allItems = mutableListOf<Idiom>()
+                var overallProgress = 0f
 
-                for ((index, source) in dictionarySources.withIndex()) {
-                    val progress = (index.toFloat()) / dictionarySources.size.toFloat()
+                for (source in dictionarySources) {
+                    val currentStepStartProgress = overallProgress
                     Log.d(TAG, "準備下載: ${source.url}")
-                    updateProgress(progress, "正在下載 ${source.name}...")
+                    updateProgress(currentStepStartProgress, "正在下載 ${source.name}...")
 
-                    val items = downloadAndParse(source.url, source.key)
+                    val items = downloadAndParse(source.url, source.key) { parseProgress ->
+                        // **關鍵更新：根據解析進度，計算在總進度中的位置**
+                        val progressInStep = parseProgress * source.weight
+                        updateProgress(currentStepStartProgress + progressInStep, "正在處理 ${source.name}...")
+                    }
+
+                    overallProgress += source.weight
+
                     Log.i(TAG, "************ ${source.name} 解析完成, 找到 ${items.size} 筆資料 ************")
 
                     if (items.isNotEmpty()) {
@@ -44,7 +54,6 @@ class DictionaryRepository(val idiomDao: IdiomDao) {
 
                 if (allItems.isNotEmpty()) {
                     updateProgress(0.9f, "正在將 ${allItems.size} 筆總資料寫入資料庫 (這一步會很久)...")
-                    // 為避免單次交易過大，我們分批插入
                     allItems.chunked(5000).forEach { chunk ->
                         idiomDao.insertAll(chunk)
                         Log.d(TAG, "已插入 ${chunk.size} 筆資料...")
@@ -67,15 +76,15 @@ class DictionaryRepository(val idiomDao: IdiomDao) {
         }
     }
 
-    private suspend fun downloadAndParse(urlString: String, source: String): List<Idiom> {
+    private suspend fun downloadAndParse(urlString: String, sourceKey: String, onProgress: (Float) -> Unit): List<Idiom> {
         return withContext(Dispatchers.IO) {
             try {
                 Log.d(TAG, "downloadAndParse: 開始執行 $urlString")
                 val url = URL(urlString)
                 val connection = url.openConnection() as HttpsURLConnection
                 connection.setRequestProperty("User-Agent", "Mozilla/5.0")
-                connection.connectTimeout = 60000 // 60 秒
-                connection.readTimeout = 600000 // 10 分鐘
+                connection.connectTimeout = 60000
+                connection.readTimeout = 600000
                 connection.connect()
 
                 if (connection.responseCode != HttpsURLConnection.HTTP_OK) {
@@ -85,8 +94,10 @@ class DictionaryRepository(val idiomDao: IdiomDao) {
 
                 Log.d(TAG, "downloadAndParse: 連線成功，準備讀取 JSON 串流。")
 
+                val sourceInfo = dictionarySources.first { it.key == sourceKey }
+
                 val idioms = connection.inputStream.use { inputStream ->
-                    parseJsonStream(inputStream, source)
+                    parseJsonStream(inputStream, sourceKey, sourceInfo.approxSize, onProgress)
                 }
 
                 Log.d(TAG, "downloadAndParse: JSON 讀取與解析完畢，總共找到 ${idioms.size} 筆資料。")
@@ -98,7 +109,7 @@ class DictionaryRepository(val idiomDao: IdiomDao) {
         }
     }
 
-    private fun parseJsonStream(inputStream: InputStream, source: String): List<Idiom> {
+    private fun parseJsonStream(inputStream: InputStream, source: String, totalCount: Int, onProgress: (Float) -> Unit): List<Idiom> {
         val reader = JsonReader(inputStream.bufferedReader())
         val idioms = mutableListOf<Idiom>()
         var count = 0
@@ -108,8 +119,9 @@ class DictionaryRepository(val idiomDao: IdiomDao) {
             while (reader.hasNext()) {
                 readIdiomObject(reader, source)?.let { idioms.add(it) }
                 count++
-                if (count > 0 && count % 5000 == 0) {
-                    Log.d(TAG, "($source) 已解析 $count 筆資料...")
+                if (count > 0 && count % 500 == 0) { // 每 500 筆更新一次進度
+                    val progress = count.toFloat() / totalCount.toFloat()
+                    onProgress(progress.coerceAtMost(1.0f)) // 確保進度不超過 1.0
                 }
             }
             reader.endArray()
@@ -119,6 +131,7 @@ class DictionaryRepository(val idiomDao: IdiomDao) {
             reader.close()
         }
 
+        onProgress(1.0f) // 確保結束時進度為 100%
         Log.i(TAG, "($source) 串流解析完成，總共 ${idioms.size} 筆。")
         return idioms
     }
