@@ -6,14 +6,12 @@ import androidx.activity.compose.setContent
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Book
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
@@ -52,7 +50,7 @@ private val EInkColorScheme = lightColorScheme(
     onBackground = EInkTextColor,
     onSurface = EInkTextColor,
     onSurfaceVariant = EInkTextColorSecondary,
-    primary = EInkTextColor, // 輸入框游標等強調色也用黑色
+    primary = EInkTextColor,
     outline = EInkBorderColor
 )
 
@@ -164,19 +162,18 @@ fun SearchScreen(navController: NavController, viewModel: DictionaryViewModel) {
                 .padding(paddingValues)
                 .padding(horizontal = 16.dp, vertical = 8.dp)
         ) {
-            // **關鍵修正：改用 OutlinedTextField 並加大字體**
             OutlinedTextField(
                 value = searchQuery,
                 onValueChange = { viewModel.onSearchQueryChanged(it) },
                 modifier = Modifier.fillMaxWidth(),
-                textStyle = TextStyle(fontSize = 36.sp), // 字體加大
-                placeholder = { Text("請輸入詞語...", fontSize = 36.sp) }, // 字體加大
+                textStyle = TextStyle(fontSize = 36.sp),
+                placeholder = { Text("請輸入詞語...", fontSize = 36.sp) },
                 leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search Icon", modifier = Modifier.size(36.dp)) },
                 singleLine = true,
                 shape = RoundedCornerShape(12.dp),
                 colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = EInkTextColor, // 選取時為黑色框線
-                    unfocusedBorderColor = EInkBorderColor, // 未選取時為灰色框線
+                    focusedBorderColor = EInkTextColor,
+                    unfocusedBorderColor = EInkBorderColor,
                     cursorColor = EInkTextColor
                 )
             )
@@ -254,29 +251,47 @@ fun DetailScreen(navController: NavController, idiomId: Int, viewModel: Dictiona
                     Spacer(modifier = Modifier.height(16.dp))
                     Row(verticalAlignment = Alignment.Bottom) {
                         Text(currentIdiom.term, fontSize = 64.sp, fontWeight = FontWeight.Bold)
-                        if (currentIdiom.term.length == 1 && currentIdiom.radical != null && currentIdiom.strokeCount != null && currentIdiom.nonRadicalStrokeCount != null) {
+                        if (currentIdiom.term.length == 1 && currentIdiom.radical != null && currentIdiom.strokeCount != null) {
                             Text(
-                                text = "[${currentIdiom.radical}部-${currentIdiom.nonRadicalStrokeCount}畫-共${currentIdiom.strokeCount}畫]",
+                                text = "[${currentIdiom.radical}部-${currentIdiom.nonRadicalStrokeCount ?: 0}畫-共${currentIdiom.strokeCount}畫]",
                                 fontSize = 32.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.padding(start = 12.dp, bottom = 8.dp)
                             )
                         }
                     }
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(currentIdiom.zhuyin, fontSize = 36.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Spacer(modifier = Modifier.height(24.dp))
                 }
 
-                item {
-                    Column {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.Book, contentDescription = "詳細說明", tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("詳細說明", fontSize = 28.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Bold)
+                items(currentIdiom.pronunciations) { pronunciation ->
+                    if (currentIdiom.pronunciations.size > 1 && currentIdiom.pronunciations.indexOf(pronunciation) > 0) {
+                        Divider(modifier = Modifier.padding(vertical = 24.dp), color = EInkBorderColor, thickness = 2.dp)
+                    }
+                    pronunciation.bopomofo?.let {
+                        Text(it, fontSize = 36.sp, color = EInkTextColor, fontWeight = FontWeight.Bold)
+                        Spacer(modifier = Modifier.height(16.dp))
+                    }
+
+                    pronunciation.definitions?.forEach { defItem ->
+                        Column(modifier = Modifier.padding(bottom = 24.dp)) {
+                            defItem.type?.let {
+                                Text("[$it]", fontSize = 28.sp, color = EInkTextColorSecondary, fontWeight = FontWeight.Bold)
+                                Spacer(modifier = Modifier.height(8.dp))
+                            }
+                            defItem.def?.let {
+                                Text(it, fontSize = 36.sp, lineHeight = 56.sp)
+                            }
+                            // 只顯示第一個範例和引證，避免畫面過於雜亂
+                            defItem.example?.firstOrNull()?.let { example ->
+                                Text("例：$example", fontSize = 32.sp, color = EInkTextColorSecondary, modifier = Modifier.padding(top = 8.dp))
+                            }
+                            defItem.quote?.firstOrNull()?.let { quote ->
+                                Text(quote, fontSize = 32.sp, color = EInkTextColorSecondary, modifier = Modifier.padding(top = 8.dp))
+                            }
+                            defItem.link?.firstOrNull()?.let { link ->
+                                Text(link, fontSize = 32.sp, color = EInkTextColorSecondary, modifier = Modifier.padding(top = 8.dp))
+                            }
                         }
-                        Divider(modifier = Modifier.padding(vertical = 16.dp), color = EInkBorderColor)
-                        Text(currentIdiom.definition, fontSize = 36.sp, lineHeight = 56.sp)
                     }
                 }
                 item { Spacer(modifier = Modifier.height(24.dp)) }
@@ -317,4 +332,3 @@ fun EInkPreview() {
         Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background))
     }
 }
-

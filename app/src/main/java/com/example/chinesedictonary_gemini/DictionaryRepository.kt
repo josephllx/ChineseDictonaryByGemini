@@ -8,17 +8,17 @@ import java.io.InputStream
 import java.net.URL
 import javax.net.ssl.HttpsURLConnection
 
-data class DictionarySource(val key: String, val url: String, val name: String, val approxSize: Int, val weight: Float)
+data class DictionarySource(val key: String, val url: String, val name: String)
 
 class DictionaryRepository(val idiomDao: IdiomDao) {
 
     private val TAG = "RepositoryDebug"
 
-    // **關鍵更新：為每個辭典加入預估大小和進度權重**
+    // **最終版：整合所有穩定、有效的 g0v JSON 連結**
     private val dictionarySources = listOf(
-        DictionarySource("idioms", "https://raw.githubusercontent.com/g0v/moedict-data-tw/master/idiom.json", "成語典", 5000, 0.1f),
-        DictionarySource("concise", "https://raw.githubusercontent.com/g0v/moedict-data-tw/master/concised.json", "簡編本", 40000, 0.2f),
-        DictionarySource("revised", "https://raw.githubusercontent.com/g0v/moedict-data/master/dict-revised.json", "重編國語辭典", 163000, 0.6f)
+        //DictionarySource("idioms", "https://raw.githubusercontent.com/g0v/moedict-data-tw/master/idiom.json", "成語典"),
+        //DictionarySource("concise", "https://raw.githubusercontent.com/g0v/moedict-data-tw/master/concised.json", "簡編本"),
+        DictionarySource("revised", "https://raw.githubusercontent.com/g0v/moedict-data/master/dict-revised.json", "重編國語辭典")
     )
 
     suspend fun setupDatabaseIfNeeded(
@@ -28,21 +28,14 @@ class DictionaryRepository(val idiomDao: IdiomDao) {
             Log.d(TAG, "資料庫為空，開始執行首次設定。")
             try {
                 val allItems = mutableListOf<Idiom>()
-                var overallProgress = 0f
+                val totalSteps = dictionarySources.size.toFloat()
 
-                for (source in dictionarySources) {
-                    val currentStepStartProgress = overallProgress
+                for ((index, source) in dictionarySources.withIndex()) {
+                    val progress = (index.toFloat()) / totalSteps
                     Log.d(TAG, "準備下載: ${source.url}")
-                    updateProgress(currentStepStartProgress, "正在下載 ${source.name}...")
+                    updateProgress(progress, "正在下載 ${source.name}...")
 
-                    val items = downloadAndParse(source.url, source.key) { parseProgress ->
-                        // **關鍵更新：根據解析進度，計算在總進度中的位置**
-                        val progressInStep = parseProgress * source.weight
-                        updateProgress(currentStepStartProgress + progressInStep, "正在處理 ${source.name}...")
-                    }
-
-                    overallProgress += source.weight
-
+                    val items = downloadAndParse(source.url, source.key)
                     Log.i(TAG, "************ ${source.name} 解析完成, 找到 ${items.size} 筆資料 ************")
 
                     if (items.isNotEmpty()) {
@@ -54,13 +47,16 @@ class DictionaryRepository(val idiomDao: IdiomDao) {
 
                 if (allItems.isNotEmpty()) {
                     updateProgress(0.9f, "正在將 ${allItems.size} 筆總資料寫入資料庫 (這一步會很久)...")
+                    // 為避免單次交易過大，我們分批插入
                     allItems.chunked(5000).forEach { chunk ->
                         idiomDao.insertAll(chunk)
                         Log.d(TAG, "已插入 ${chunk.size} 筆資料...")
                     }
                     Log.d(TAG, "所有資料寫入完成。")
                 } else {
+                    Log.e(TAG, "！！！！！！！！！！！！！！！！！！！！！！！！")
                     Log.e(TAG, "警告：所有辭典都沒有解析到任何資料。")
+                    Log.e(TAG, "！！！！！！！！！！！！！！！！！！！！！！！！")
                 }
 
                 updateProgress(1.0f, "建立索引完成！")
@@ -76,15 +72,15 @@ class DictionaryRepository(val idiomDao: IdiomDao) {
         }
     }
 
-    private suspend fun downloadAndParse(urlString: String, sourceKey: String, onProgress: (Float) -> Unit): List<Idiom> {
+    private suspend fun downloadAndParse(urlString: String, source: String): List<Idiom> {
         return withContext(Dispatchers.IO) {
             try {
                 Log.d(TAG, "downloadAndParse: 開始執行 $urlString")
                 val url = URL(urlString)
                 val connection = url.openConnection() as HttpsURLConnection
                 connection.setRequestProperty("User-Agent", "Mozilla/5.0")
-                connection.connectTimeout = 60000
-                connection.readTimeout = 600000
+                connection.connectTimeout = 60000 // 60 秒
+                connection.readTimeout = 600000 // 10 分鐘
                 connection.connect()
 
                 if (connection.responseCode != HttpsURLConnection.HTTP_OK) {
@@ -94,10 +90,8 @@ class DictionaryRepository(val idiomDao: IdiomDao) {
 
                 Log.d(TAG, "downloadAndParse: 連線成功，準備讀取 JSON 串流。")
 
-                val sourceInfo = dictionarySources.first { it.key == sourceKey }
-
                 val idioms = connection.inputStream.use { inputStream ->
-                    parseJsonStream(inputStream, sourceKey, sourceInfo.approxSize, onProgress)
+                    parseJsonStream(inputStream, source)
                 }
 
                 Log.d(TAG, "downloadAndParse: JSON 讀取與解析完畢，總共找到 ${idioms.size} 筆資料。")
@@ -109,7 +103,7 @@ class DictionaryRepository(val idiomDao: IdiomDao) {
         }
     }
 
-    private fun parseJsonStream(inputStream: InputStream, source: String, totalCount: Int, onProgress: (Float) -> Unit): List<Idiom> {
+    private fun parseJsonStream(inputStream: InputStream, source: String): List<Idiom> {
         val reader = JsonReader(inputStream.bufferedReader())
         val idioms = mutableListOf<Idiom>()
         var count = 0
@@ -119,9 +113,8 @@ class DictionaryRepository(val idiomDao: IdiomDao) {
             while (reader.hasNext()) {
                 readIdiomObject(reader, source)?.let { idioms.add(it) }
                 count++
-                if (count > 0 && count % 500 == 0) { // 每 500 筆更新一次進度
-                    val progress = count.toFloat() / totalCount.toFloat()
-                    onProgress(progress.coerceAtMost(1.0f)) // 確保進度不超過 1.0
+                if (count > 0 && count % 5000 == 0) {
+                    Log.d(TAG, "($source) 已解析 $count 筆資料...")
                 }
             }
             reader.endArray()
@@ -131,15 +124,13 @@ class DictionaryRepository(val idiomDao: IdiomDao) {
             reader.close()
         }
 
-        onProgress(1.0f) // 確保結束時進度為 100%
         Log.i(TAG, "($source) 串流解析完成，總共 ${idioms.size} 筆。")
         return idioms
     }
 
     private fun readIdiomObject(reader: JsonReader, source: String): Idiom? {
         var title = ""
-        var finalZhuyin = ""
-        var finalDefinition = ""
+        val pronunciations = mutableListOf<PronunciationItem>()
         var radical: String? = null
         var strokeCount: Int? = null
         var nonRadicalStrokeCount: Int? = null
@@ -154,13 +145,7 @@ class DictionaryRepository(val idiomDao: IdiomDao) {
                 "heteronyms" -> {
                     reader.beginArray()
                     while (reader.hasNext()) {
-                        if (finalDefinition.isBlank()) {
-                            val (zhuyin, definition) = readHeteronymObject(reader)
-                            if (finalZhuyin.isBlank()) finalZhuyin = zhuyin
-                            if (finalDefinition.isBlank()) finalDefinition = definition
-                        } else {
-                            reader.skipValue()
-                        }
+                        readHeteronymObject(reader)?.let { pronunciations.add(it) }
                     }
                     reader.endArray()
                 }
@@ -173,40 +158,38 @@ class DictionaryRepository(val idiomDao: IdiomDao) {
             return null
         }
 
-        return if (title.isNotBlank() && finalDefinition.isNotBlank()) {
+        return if (title.isNotBlank() && pronunciations.any { it.definitions?.isNotEmpty() == true }) {
             Idiom(
                 term = title,
-                zhuyin = finalZhuyin,
+                pronunciations = pronunciations,
                 source = source,
-                definition = finalDefinition,
                 radical = radical,
                 strokeCount = strokeCount,
                 nonRadicalStrokeCount = nonRadicalStrokeCount
             )
         } else {
             if (title.isNotBlank()) {
-                Log.w(TAG, "詞條 '$title' 找不到有效的定義，已跳過。")
+                Log.w(TAG, "詞條 '$title' 找不到任何有效的定義，已跳過。")
             }
             null
         }
     }
 
-    private fun readHeteronymObject(reader: JsonReader): Pair<String, String> {
-        var zhuyin = ""
-        var definition = ""
+    private fun readHeteronymObject(reader: JsonReader): PronunciationItem? {
+        var bopomofo: String? = null
+        var pinyin: String? = null
+        val definitions = mutableListOf<DefinitionItem>()
+
         try {
             reader.beginObject()
             while (reader.hasNext()) {
                 when (reader.nextName()) {
-                    "bopomofo" -> zhuyin = reader.nextString()
+                    "bopomofo" -> bopomofo = reader.nextString()
+                    "pinyin" -> pinyin = reader.nextString()
                     "definitions" -> {
                         reader.beginArray()
                         while (reader.hasNext()) {
-                            if (definition.isBlank()) {
-                                definition = readDefinitionObject(reader)
-                            } else {
-                                reader.skipValue()
-                            }
+                            readDefinitionObject(reader)?.let { definitions.add(it) }
                         }
                         reader.endArray()
                     }
@@ -216,29 +199,42 @@ class DictionaryRepository(val idiomDao: IdiomDao) {
             reader.endObject()
         } catch (e: Exception) {
             Log.e(TAG, "readHeteronymObject: 解析異讀音物件失敗", e)
+            return null
         }
-        return Pair(zhuyin, definition)
+
+        return if (definitions.isNotEmpty()) {
+            PronunciationItem(bopomofo, pinyin, definitions)
+        } else {
+            null
+        }
     }
 
-    private fun readDefinitionObject(reader: JsonReader): String {
-        var def = ""
-        var quote = ""
-        var link = ""
+    private fun readDefinitionObject(reader: JsonReader): DefinitionItem? {
+        var type: String? = null
+        var def: String? = null
+        val examples = mutableListOf<String>()
+        val quotes = mutableListOf<String>()
+        val links = mutableListOf<String>()
+
         try {
             reader.beginObject()
             while (reader.hasNext()) {
-                when(reader.nextName()){
+                when (reader.nextName()) {
+                    "type" -> type = reader.nextString()
                     "def" -> def = reader.nextString()
+                    "example" -> {
+                        reader.beginArray()
+                        while(reader.hasNext()) examples.add(reader.nextString())
+                        reader.endArray()
+                    }
                     "quote" -> {
                         reader.beginArray()
-                        if(reader.hasNext() && quote.isBlank()) quote = reader.nextString()
-                        while(reader.hasNext()) reader.skipValue()
+                        while(reader.hasNext()) quotes.add(reader.nextString())
                         reader.endArray()
                     }
                     "link" -> {
                         reader.beginArray()
-                        if(reader.hasNext() && link.isBlank()) link = reader.nextString()
-                        while(reader.hasNext()) reader.skipValue()
+                        while(reader.hasNext()) links.add(reader.nextString())
                         reader.endArray()
                     }
                     else -> reader.skipValue()
@@ -247,12 +243,20 @@ class DictionaryRepository(val idiomDao: IdiomDao) {
             reader.endObject()
         } catch (e: Exception) {
             Log.e(TAG, "readDefinitionObject: 解析定義物件失敗", e)
+            return null
         }
-        return when {
-            def.isNotBlank() -> def
-            quote.isNotBlank() -> quote
-            link.isNotBlank() -> link
-            else -> ""
+
+        val finalDef = when {
+            !def.isNullOrBlank() -> def
+            quotes.isNotEmpty() -> quotes.joinToString("\n")
+            links.isNotEmpty() -> links.joinToString("\n")
+            else -> null
+        }
+
+        return if (finalDef != null) {
+            DefinitionItem(type, finalDef, examples.ifEmpty { null }, quotes.ifEmpty { null }, links.ifEmpty { null })
+        } else {
+            null
         }
     }
 }

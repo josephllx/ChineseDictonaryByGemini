@@ -1,23 +1,27 @@
 plugins {
-    alias(libs.plugins.android.application)
-    alias(libs.plugins.kotlin.android)
-    alias(libs.plugins.kotlin.compose)
+    // **關鍵修正：移除所有局部的版本號和 alias，直接使用 id**
+    // 這樣 Gradle 就會自動去專案層級的 build.gradle.kts 尋找統一規定的版本號
+    id("com.android.application")
+    id("org.jetbrains.kotlin.android")
     id("com.google.devtools.ksp")
-    id("org.jetbrains.kotlin.plugin.serialization") version "1.9.22" apply false
+    id("org.jetbrains.kotlin.plugin.serialization")
 }
 
 android {
-    namespace = "com.example.chinesedictonary_gemini"
-    compileSdk = 36
+    namespace = "com.example.chinesedictonary_gemini" // 請確認您的 namespace 正確
+    compileSdk = 34
 
     defaultConfig {
-        applicationId = "com.example.chinesedictonary_gemini"
+        applicationId = "com.example.chinesedictonary_gemini" // 請確認您的 applicationId 正確
         minSdk = 26
-        targetSdk = 36
+        targetSdk = 34
         versionCode = 1
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        vectorDrawables {
+            useSupportLibrary = true
+        }
     }
 
     buildTypes {
@@ -30,51 +34,60 @@ android {
         }
     }
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_11
-        targetCompatibility = JavaVersion.VERSION_11
+        sourceCompatibility = JavaVersion.VERSION_1_8
+        targetCompatibility = JavaVersion.VERSION_1_8
     }
     kotlinOptions {
-        jvmTarget = "11"
+        jvmTarget = "1.8"
     }
     buildFeatures {
         compose = true
+    }
+    composeOptions {
+        kotlinCompilerExtensionVersion = "1.5.8" // 這個版本對應 Kotlin 1.9.22
+    }
+    packaging {
+        resources {
+            excludes += "/META-INF/{AL2.0,LGPL2.1}"
+        }
     }
 }
 
 dependencies {
 
-    implementation(libs.androidx.core.ktx)
-    implementation(libs.androidx.lifecycle.runtime.ktx)
-    implementation(libs.androidx.activity.compose)
-    implementation(platform(libs.androidx.compose.bom))
-    implementation(libs.androidx.ui)
-    implementation(libs.androidx.ui.graphics)
-    implementation(libs.androidx.ui.tooling.preview)
-    implementation(libs.androidx.material3)
-    implementation("androidx.compose.material:material-icons-extended-android:1.6.7")
-
-    // 新增 ViewModel 和 LiveData 的支援
-    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.1")
-    implementation("androidx.compose.runtime:runtime-livedata:1.6.7")
-
-    // 新增 Navigation for Compose 的支援
+    // **關鍵修正：將部分函式庫版本降級以匹配 AGP 8.4.1**
+    implementation("androidx.core:core-ktx:1.12.0")
+    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0")
+    implementation("androidx.activity:activity-compose:1.8.2")
+    // 將 Compose BOM 降級到與 AGP 8.4.1 相容的穩定版本
+    implementation(platform("androidx.compose:compose-bom:2024.02.02"))
+    implementation("androidx.compose.ui:ui")
+    implementation("androidx.compose.ui:ui-graphics")
+    implementation("androidx.compose.ui:ui-tooling-preview")
+    implementation("androidx.compose.material3:material3")
+    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.7.0")
+    implementation("androidx.lifecycle:lifecycle-livedata-ktx:2.7.0")
     implementation("androidx.navigation:navigation-compose:2.7.7")
-    implementation("androidx.compose.ui:ui-text-google-fonts")
+    implementation("androidx.compose.ui:ui-text-google-fonts:1.6.2")
+    implementation("androidx.compose.material:material-icons-extended")
+    implementation("androidx.compose.runtime:runtime-livedata:1.6.2")
 
-    testImplementation(libs.junit)
-    androidTestImplementation(libs.androidx.junit)
-    androidTestImplementation(libs.androidx.espresso.core)
-    androidTestImplementation(platform(libs.androidx.compose.bom))
-    androidTestImplementation(libs.androidx.ui.test.junit4)
-    debugImplementation(libs.androidx.ui.tooling)
-    debugImplementation(libs.androidx.ui.test.manifest)
 
-    val room_version = "2.6.1" // Or the latest version
-
+    // --- Room 資料庫依賴 ---
+    val room_version = "2.6.1"
     implementation("androidx.room:room-runtime:$room_version")
-    ksp("androidx.room:room-compiler:$room_version") // Or annotationProcessor for Java-only projects
+    implementation("androidx.room:room-ktx:$room_version")
+    ksp("androidx.room:room-compiler:$room_version")
+
+
+    // --- Kotlinx Serialization 函式庫 ---
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.3")
 
-    // Optional - Kotlin Extensions and Coroutines support for Room
-    implementation("androidx.room:room-ktx:$room_version")
+    testImplementation("junit:junit:4.13.2")
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
+    androidTestImplementation("androidx.test.espresso:espresso-core:3.6.1")
+    androidTestImplementation(platform("androidx.compose:compose-bom:2024.02.02")) // 與上方 BOM 版本保持一致
+    androidTestImplementation("androidx.compose.ui:ui-test-junit4")
+    debugImplementation("androidx.compose.ui:ui-tooling")
+    debugImplementation("androidx.compose.ui:ui-test-manifest")
 }

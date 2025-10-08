@@ -1,9 +1,12 @@
 // Top-level build file where you can add configuration options common to all sub-projects/modules.
 plugins {
-    alias(libs.plugins.android.application) apply false
-    alias(libs.plugins.kotlin.android) apply false
-    alias(libs.plugins.kotlin.compose) apply false
-    // 關鍵！如果缺少這一行，就會發生您遇到的錯誤。
-    // 在這裡宣告 KSP 外掛與其版本號。
-    id("com.google.devtools.ksp") version "2.0.21-1.0.25" apply false
+    // 為了清晰起見，我們暫時不使用 alias，直接寫明版本號
+    id("com.android.application") version "8.12.3" apply false
+
+    // **關鍵修正：將所有 Kotlin 相關工具的版本全部統一為 1.9.22**
+    id("org.jetbrains.kotlin.android") version "1.9.22" apply false
+    id("org.jetbrains.kotlin.plugin.serialization") version "1.9.22" apply false
+
+    // **關鍵修正：將 KSP 的版本降級，使其與 Kotlin 1.9.22 匹配**
+    id("com.google.devtools.ksp") version "1.9.22-1.0.18" apply false
 }
