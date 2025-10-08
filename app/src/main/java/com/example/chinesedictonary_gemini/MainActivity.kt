@@ -16,7 +16,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Book
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
@@ -177,6 +176,7 @@ fun SearchScreen(navController: NavController, viewModel: DictionaryViewModel) {
 
             Spacer(modifier = Modifier.height(16.dp))
 
+            // **關鍵修正：將 "部首" 的情況獨立出來**
             when (selectedSearchType) {
                 "詞彙" -> {
                     val searchQuery by viewModel.searchQuery.observeAsState("")
@@ -213,7 +213,7 @@ fun SearchScreen(navController: NavController, viewModel: DictionaryViewModel) {
 }
 
 @Composable
-fun WordSearchContent(searchQuery: String, onQueryChange: (String) -> Unit, searchResults: List<Idiom>, onItemClick: (Int) -> Unit) {
+fun WordSearchContent(searchQuery: String, onQueryChange: (String) -> Unit, searchResults: List<IdiomWithPronunciations>, onItemClick: (Int) -> Unit) {
     Column(modifier = Modifier.fillMaxSize()) {
         OutlinedTextField(value = searchQuery, onValueChange = onQueryChange, modifier = Modifier.fillMaxWidth(), textStyle = TextStyle(fontSize = 36.sp), placeholder = { Text("請輸入詞語...", fontSize = 36.sp) }, leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search Icon", modifier = Modifier.size(36.dp)) }, singleLine = true, shape = RoundedCornerShape(12.dp), colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = EInkTextColor, unfocusedBorderColor = EInkBorderColor, cursorColor = EInkTextColor))
         Spacer(modifier = Modifier.height(16.dp))
@@ -224,8 +224,8 @@ fun WordSearchContent(searchQuery: String, onQueryChange: (String) -> Unit, sear
                 Text("查無結果", fontSize = 28.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.align(Alignment.TopCenter).padding(top = 32.dp))
             } else {
                 LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    items(searchResults) { idiom ->
-                        IdiomListItem(idiom = idiom, onClick = { onItemClick(idiom.id) })
+                    items(searchResults) { item ->
+                        IdiomListItem(idiom = item.idiom, onClick = { onItemClick(item.idiom.id) })
                     }
                 }
             }
@@ -234,7 +234,7 @@ fun WordSearchContent(searchQuery: String, onQueryChange: (String) -> Unit, sear
 }
 
 @Composable
-fun RadicalSearchContent(radicals: List<String>, selectedRadical: String?, searchResults: List<Idiom>, onRadicalClick: (String) -> Unit, onItemClick: (Int) -> Unit) {
+fun RadicalSearchContent(radicals: List<String>, selectedRadical: String?, searchResults: List<IdiomWithPronunciations>, onRadicalClick: (String) -> Unit, onItemClick: (Int) -> Unit) {
     Column(modifier = Modifier.fillMaxSize()) {
         Card(border = BorderStroke(1.dp, EInkBorderColor), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
             LazyVerticalGrid(
@@ -269,8 +269,8 @@ fun RadicalSearchContent(radicals: List<String>, selectedRadical: String?, searc
             Text("查無結果", fontSize = 28.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.align(Alignment.CenterHorizontally).padding(top = 32.dp))
         } else {
             LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                items(searchResults) { idiom ->
-                    IdiomListItem(idiom = idiom, onClick = { onItemClick(idiom.id) })
+                items(searchResults) { item ->
+                    IdiomListItem(idiom = item.idiom, onClick = { onItemClick(item.idiom.id) })
                 }
             }
         }
@@ -278,7 +278,7 @@ fun RadicalSearchContent(radicals: List<String>, selectedRadical: String?, searc
 }
 
 @Composable
-fun ZhuyinSearchContent(searchQuery: String, onQueryChange: (String) -> Unit, searchResults: List<Idiom>, onItemClick: (Int) -> Unit) {
+fun ZhuyinSearchContent(searchQuery: String, onQueryChange: (String) -> Unit, searchResults: List<IdiomWithPronunciations>, onItemClick: (Int) -> Unit) {
     Column(modifier = Modifier.fillMaxSize()) {
         OutlinedTextField(value = searchQuery, onValueChange = {}, readOnly = true, modifier = Modifier.fillMaxWidth(), textStyle = TextStyle(fontSize = 36.sp), placeholder = { Text("請使用下方鍵盤輸入...", fontSize = 36.sp) }, shape = RoundedCornerShape(12.dp), colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = EInkTextColor, unfocusedBorderColor = EInkBorderColor))
 
@@ -288,11 +288,10 @@ fun ZhuyinSearchContent(searchQuery: String, onQueryChange: (String) -> Unit, se
             if (searchQuery.isNotBlank() && searchResults.isEmpty()) {
                 item { Text("查無結果", fontSize = 28.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 32.dp)) }
             } else {
-                items(searchResults) { idiom ->
+                items(searchResults) { item ->
                     ZhuyinListItem(
-                        idiom = idiom,
-                        searchQuery = searchQuery,
-                        onClick = { onItemClick(idiom.id) }
+                        item = item,
+                        onClick = { onItemClick(item.idiom.id) }
                     )
                 }
             }
@@ -308,19 +307,12 @@ fun ZhuyinSearchContent(searchQuery: String, onQueryChange: (String) -> Unit, se
 
 @Composable
 fun ZhuyinKeyboard(onKeyPress: (String) -> Unit, onBackspace: () -> Unit, onClear: () -> Unit) {
-    // **最終版：倚天26鍵 (ETen-26) QWERTY 注音排列**
-    // 根據使用者指定 ㄧㄨㄩ -> ujm 等精確對應
     val keys = listOf(
-        // Number Row (對應 1-0, -)
         listOf("ㄅ", "ㄉ", "ˇ", "ˋ", "ㄓ", "ˊ", "˙", "ㄚ", "ㄞ", "ㄢ", "ㄦ"),
-        // QWERTY Row (對應 Q-P)
         listOf("ㄆ", "ㄊ", "ㄍ", "ㄐ", "ㄔ", "ㄗ", "ㄧ", "ㄛ", "ㄟ", "ㄣ"),
-        // ASDF Row (對應 A-;)
         listOf("ㄇ", "ㄋ", "ㄎ", "ㄑ", "ㄕ", "ㄘ", "ㄨ", "ㄜ", "ㄠ", "ㄤ"),
-        // ZXCV Row (對應 Z-/)
         listOf("ㄈ", "ㄌ", "ㄏ", "ㄒ", "ㄖ", "ㄙ", "ㄩ", "ㄝ", "ㄡ", "ㄥ")
     )
-
     Card(border = BorderStroke(1.dp, EInkBorderColor), modifier = Modifier.padding(top = 8.dp)) {
         Column(
             modifier = Modifier.padding(vertical = 8.dp, horizontal = 4.dp),
@@ -339,13 +331,10 @@ fun ZhuyinKeyboard(onKeyPress: (String) -> Unit, onBackspace: () -> Unit, onClea
                             colors = ButtonDefaults.buttonColors(containerColor = EInkSurfaceColor, contentColor = EInkTextColor),
                             border = BorderStroke(1.dp, EInkBorderColor),
                             contentPadding = PaddingValues(0.dp)
-                        ) {
-                            Text(key, fontSize = 24.sp)
-                        }
+                        ) { Text(key, fontSize = 24.sp) }
                     }
                 }
             }
-            // Final row for Space, Clear, Backspace
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
@@ -358,6 +347,7 @@ fun ZhuyinKeyboard(onKeyPress: (String) -> Unit, onBackspace: () -> Unit, onClea
     }
 }
 
+
 @Composable
 fun IdiomListItem(idiom: Idiom, onClick: () -> Unit) {
     Card(modifier = Modifier.fillMaxWidth().clickable(onClick = onClick), shape = RoundedCornerShape(8.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), border = BorderStroke(1.dp, EInkBorderColor)) {
@@ -369,44 +359,22 @@ fun IdiomListItem(idiom: Idiom, onClick: () -> Unit) {
 }
 
 @Composable
-fun ZhuyinListItem(idiom: Idiom, searchQuery: String, onClick: () -> Unit) {
-    val queryParts = searchQuery.trim().split(" ").filter { it.isNotEmpty() }
-    val matchingPronunciation = idiom.pronunciations.firstOrNull { p ->
-        val bopomofoParts = p.bopomofo?.trim()?.split(" ")?.filter { it.isNotEmpty() }
-        if (bopomofoParts == null || bopomofoParts.size < queryParts.size) return@firstOrNull false
-        var matches = true
-        for(i in queryParts.indices) {
-            if(!bopomofoParts[i].startsWith(queryParts[i])) {
-                matches = false
-                break
-            }
-        }
-        matches
-    }
-
+fun ZhuyinListItem(item: IdiomWithPronunciations, onClick: () -> Unit) {
     Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick),
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
         shape = RoundedCornerShape(8.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         border = BorderStroke(1.dp, EInkBorderColor)
     ) {
         Row(
-            modifier = Modifier
-                .padding(horizontal = 20.dp, vertical = 16.dp)
-                .fillMaxWidth(),
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp).fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             Column {
-                Text(idiom.term, fontSize = 36.sp)
-                (matchingPronunciation?.bopomofo ?: idiom.pronunciations.firstOrNull()?.bopomofo)?.let {
-                    Text(
-                        text = it,
-                        fontSize = 24.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                Text(item.idiom.term, fontSize = 36.sp)
+                item.pronunciations.firstOrNull()?.bopomofo?.let {
+                    Text(text = it, fontSize = 24.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
             Icon(Icons.Default.ChevronRight, contentDescription = "查看詳情", tint = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -418,23 +386,23 @@ fun ZhuyinListItem(idiom: Idiom, searchQuery: String, onClick: () -> Unit) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DetailScreen(navController: NavController, idiomId: Int, viewModel: DictionaryViewModel) {
-    val idiom by viewModel.getIdiomById(idiomId).observeAsState()
+    val item by viewModel.getIdiomById(idiomId).observeAsState()
     Scaffold(topBar = { TopAppBar(title = { }, navigationIcon = { IconButton(onClick = { navController.popBackStack() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", modifier = Modifier.size(36.dp)) } }, colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface)) }) { paddingValues ->
-        val currentIdiom = idiom
-        if (currentIdiom != null) {
+        val currentItem = item
+        if (currentItem != null) {
             LazyColumn(modifier = Modifier.fillMaxSize().padding(paddingValues).padding(horizontal = 24.dp)) {
                 item {
                     Spacer(modifier = Modifier.height(16.dp))
                     Row(verticalAlignment = Alignment.Bottom) {
-                        Text(currentIdiom.term, fontSize = 64.sp, fontWeight = FontWeight.Bold)
-                        if (currentIdiom.term.length == 1 && currentIdiom.radical != null && currentIdiom.strokeCount != null) {
-                            Text(text = "[${currentIdiom.radical}部-${currentIdiom.nonRadicalStrokeCount ?: 0}畫-共${currentIdiom.strokeCount}畫]", fontSize = 32.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(start = 12.dp, bottom = 8.dp))
+                        Text(currentItem.idiom.term, fontSize = 64.sp, fontWeight = FontWeight.Bold)
+                        if (currentItem.idiom.term.length == 1 && currentItem.idiom.radical != null && currentItem.idiom.strokeCount != null) {
+                            Text(text = "[${currentItem.idiom.radical}部-${currentItem.idiom.nonRadicalStrokeCount ?: 0}畫-共${currentItem.idiom.strokeCount}畫]", fontSize = 32.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(start = 12.dp, bottom = 8.dp))
                         }
                     }
                     Spacer(modifier = Modifier.height(24.dp))
                 }
-                items(currentIdiom.pronunciations) { pronunciation ->
-                    if (currentIdiom.pronunciations.size > 1) {
+                items(currentItem.pronunciations) { pronunciation ->
+                    if (currentItem.pronunciations.size > 1) {
                         Divider(modifier = Modifier.padding(vertical = 16.dp), color = EInkBorderColor)
                     }
                     pronunciation.bopomofo?.let {

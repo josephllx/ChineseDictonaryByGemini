@@ -21,8 +21,8 @@ class DictionaryViewModel(private val repository: DictionaryRepository) : ViewMo
     private val _searchQuery = MutableLiveData("")
     val searchQuery: LiveData<String> = _searchQuery
 
-    private val _searchResults = MutableLiveData<List<Idiom>>(emptyList())
-    val searchResults: LiveData<List<Idiom>> = _searchResults
+    private val _searchResults = MutableLiveData<List<IdiomWithPronunciations>>(emptyList())
+    val searchResults: LiveData<List<IdiomWithPronunciations>> = _searchResults
 
     private val _radicals = MutableLiveData<List<String>>()
     val radicals: LiveData<List<String>> = _radicals
@@ -54,14 +54,13 @@ class DictionaryViewModel(private val repository: DictionaryRepository) : ViewMo
         clearSearch()
     }
 
-    // 輔助函式：根據注音符號獲取聲調順序
     private fun getToneOrder(syllable: String): Int {
         return when {
-            syllable.endsWith("ˊ") -> 2 // 二聲
-            syllable.endsWith("ˇ") -> 3 // 三聲
-            syllable.endsWith("ˋ") -> 4 // 四聲
-            syllable.endsWith("˙") -> 5 // 輕聲
-            else -> 1 // 一聲 (沒有符號)
+            syllable.endsWith("ˊ") -> 2
+            syllable.endsWith("ˇ") -> 3
+            syllable.endsWith("ˋ") -> 4
+            syllable.endsWith("˙") -> 5
+            else -> 1
         }
     }
 
@@ -88,26 +87,8 @@ class DictionaryViewModel(private val repository: DictionaryRepository) : ViewMo
                             emptyList()
                         } else {
                             val roughResults = repository.idiomDao.searchByZhuyinInitial(firstChar)
-                            val filteredResults = filterResultsByFullZhuyin(roughResults, query)
-
-                            val queryParts = trimmedQuery.split(" ").filter { it.isNotEmpty() }
-                            if (queryParts.size == 1) {
-                                // **最終版三層排序邏輯**
-                                filteredResults.sortedWith(
-                                    compareBy<Idiom> { it.term.length } // 1. 按詞長排序
-                                        .thenBy { idiom -> // 2. 按第一個音節的長度排序
-                                            val p = idiom.pronunciations.firstOrNull { p -> p.bopomofo?.trim()?.startsWith(trimmedQuery) == true }
-                                            p?.bopomofo?.trim()?.split(" ")?.firstOrNull()?.length ?: 99
-                                        }
-                                        .thenBy { idiom -> // 3. 按聲調排序
-                                            val p = idiom.pronunciations.firstOrNull { p -> p.bopomofo?.trim()?.startsWith(trimmedQuery) == true }
-                                            val syllable = p?.bopomofo?.trim()?.split(" ")?.firstOrNull()
-                                            syllable?.let { getToneOrder(it) } ?: 99
-                                        }
-                                )
-                            } else {
-                                filteredResults
-                            }
+                            val filteredAndSortedResults = filterAndSortZhuyinResults(roughResults, query)
+                            filteredAndSortedResults
                         }
                     }
                     else -> emptyList()
@@ -119,33 +100,61 @@ class DictionaryViewModel(private val repository: DictionaryRepository) : ViewMo
         }
     }
 
-    private fun filterResultsByFullZhuyin(results: List<Idiom>, originalQuery: String): List<Idiom> {
-        val trimmedQuery = originalQuery.trim()
-        if (trimmedQuery.isEmpty()) return emptyList()
+    private fun filterAndSortZhuyinResults(results: List<IdiomWithPronunciations>, originalQuery: String): List<IdiomWithPronunciations> {
+        // **關鍵修正：建立一個正規表示式來匹配所有類型的空白**
+        val whitespaceRegex = Regex("\\s+")
+        // 將使用者的查詢正規化，替換所有空白為標準半形空白
+        val normalizedQuery = originalQuery.trim().replace(whitespaceRegex, " ")
 
-        val isExactSyllableSearch = originalQuery.endsWith(" ") && trimmedQuery.split(" ").filter { it.isNotEmpty() }.size == 1
+        if (normalizedQuery.isEmpty()) return emptyList()
 
-        return results.filter { idiom ->
-            idiom.pronunciations.any { pronunciation ->
-                val bopomofo = pronunciation.bopomofo?.trim() ?: return@any false
+        val isExactSyllableSearch = originalQuery.endsWith(" ") && normalizedQuery.split(" ").size == 1
 
-                if (!bopomofo.startsWith(trimmedQuery)) {
-                    return@any false
-                }
+        val filtered = results.mapNotNull { idiomWithPronunciations ->
+            val matchingPronunciations = idiomWithPronunciations.pronunciations.filter { p ->
+                val bopomofoRaw = p.bopomofo?.trim() ?: return@filter false
+                // **關鍵修正：同樣將資料庫中的注音字串正規化**
+                val normalizedBopomofo = bopomofoRaw.replace(whitespaceRegex, " ")
+
+                if (!normalizedBopomofo.startsWith(normalizedQuery)) return@filter false
 
                 if (isExactSyllableSearch) {
-                    val firstSyllable = bopomofo.split(" ").firstOrNull() ?: ""
+                    val firstSyllable = normalizedBopomofo.split(" ").firstOrNull() ?: ""
                     val hasTone = firstSyllable.any { it in "ˊˇˋ˙" }
-
-                    if (hasTone && firstSyllable.length == trimmedQuery.length + 1) {
-                        return@any false
+                    if (hasTone && firstSyllable.length == normalizedQuery.length + 1) {
+                        return@filter false
                     }
                 }
                 true
             }
+
+            if (matchingPronunciations.isNotEmpty()) {
+                idiomWithPronunciations.copy(pronunciations = matchingPronunciations)
+            } else {
+                null
+            }
+        }
+
+        val queryParts = normalizedQuery.split(" ")
+        return if (queryParts.size == 1) {
+            filtered.sortedWith(
+                compareBy<IdiomWithPronunciations> { it.idiom.term.length }
+                    .thenBy {
+                        val p = it.pronunciations.first()
+                        val bopomofo = p.bopomofo?.trim()?.replace(whitespaceRegex, " ") ?: ""
+                        bopomofo.split(" ").firstOrNull()?.length ?: 99
+                    }
+                    .thenBy {
+                        val p = it.pronunciations.first()
+                        val bopomofo = p.bopomofo?.trim()?.replace(whitespaceRegex, " ") ?: ""
+                        val syllable = bopomofo.split(" ").firstOrNull()
+                        syllable?.let { getToneOrder(it) } ?: 99
+                    }
+            )
+        } else {
+            filtered
         }
     }
-
 
     fun clearSearch() {
         _searchQuery.value = ""
@@ -153,8 +162,8 @@ class DictionaryViewModel(private val repository: DictionaryRepository) : ViewMo
         _selectedRadical.value = null
     }
 
-    fun getIdiomById(id: Int): LiveData<Idiom?> {
-        val result = MutableLiveData<Idiom?>()
+    fun getIdiomById(id: Int): LiveData<IdiomWithPronunciations?> {
+        val result = MutableLiveData<IdiomWithPronunciations?>()
         viewModelScope.launch(Dispatchers.IO) {
             val idiom = repository.idiomDao.getIdiomById(id)
             withContext(Dispatchers.Main) {

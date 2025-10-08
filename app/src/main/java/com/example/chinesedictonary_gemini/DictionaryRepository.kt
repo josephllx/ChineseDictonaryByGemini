@@ -10,14 +10,13 @@ import javax.net.ssl.HttpsURLConnection
 
 data class DictionarySource(val key: String, val url: String, val name: String)
 
+private data class ParsedIdiomHolder(val idiom: Idiom, val pronunciations: List<PronunciationItem>)
+
+
 class DictionaryRepository(val idiomDao: IdiomDao) {
 
     private val TAG = "RepositoryDebug"
-
-    // **最終版：整合所有穩定、有效的 g0v JSON 連結**
     private val dictionarySources = listOf(
-        //DictionarySource("idioms", "https://raw.githubusercontent.com/g0v/moedict-data-tw/master/idiom.json", "成語典"),
-        //DictionarySource("concise", "https://raw.githubusercontent.com/g0v/moedict-data-tw/master/concised.json", "簡編本"),
         DictionarySource("revised", "https://raw.githubusercontent.com/g0v/moedict-data/master/dict-revised.json", "重編國語辭典")
     )
 
@@ -27,36 +26,55 @@ class DictionaryRepository(val idiomDao: IdiomDao) {
         if (idiomDao.count() == 0) {
             Log.d(TAG, "資料庫為空，開始執行首次設定。")
             try {
-                val allItems = mutableListOf<Idiom>()
-                val totalSteps = dictionarySources.size.toFloat()
+                updateProgress(0.0f, "準備下載辭典...")
 
                 for ((index, source) in dictionarySources.withIndex()) {
-                    val progress = (index.toFloat()) / totalSteps
+                    val progress = (index.toFloat() + 0.5f) / dictionarySources.size.toFloat() * 0.1f
                     Log.d(TAG, "準備下載: ${source.url}")
                     updateProgress(progress, "正在下載 ${source.name}...")
 
-                    val items = downloadAndParse(source.url, source.key)
-                    Log.i(TAG, "************ ${source.name} 解析完成, 找到 ${items.size} 筆資料 ************")
+                    val parsedItems = downloadAndParse(source.url, source.key)
+                    Log.i(TAG, "************ ${source.name} 解析完成, 找到 ${parsedItems.size} 筆資料 ************")
 
-                    if (items.isNotEmpty()) {
-                        allItems.addAll(items)
+                    if (parsedItems.isNotEmpty()) {
+                        val totalToInsert = parsedItems.size
+                        var insertedCount = 0
+
+                        // **加大 Chunk Size，因為現在的寫入效率極高**
+                        parsedItems.chunked(2000).forEach { chunk ->
+                            // **全新、高效的批次寫入邏輯**
+
+                            // 1. 批次插入主詞條，並獲取返回的 ID 列表
+                            val idiomEntities = chunk.map { it.idiom }
+                            val newIdiomIds = idiomDao.insertIdioms(idiomEntities)
+
+                            // 2. 準備所有對應的發音資料
+                            val allPronunciationsForChunk = mutableListOf<Pronunciation>()
+                            chunk.forEachIndexed { chunkIndex, item ->
+                                val idiomId = newIdiomIds[chunkIndex]
+                                val pronunciationEntities = item.pronunciations.map { p ->
+                                    Pronunciation(
+                                        idiomId = idiomId.toInt(),
+                                        bopomofo = p.bopomofo,
+                                        pinyin = p.pinyin,
+                                        definitions = p.definitions
+                                    )
+                                }
+                                allPronunciationsForChunk.addAll(pronunciationEntities)
+                            }
+
+                            // 3. 批次插入所有發音
+                            idiomDao.insertPronunciations(allPronunciationsForChunk)
+
+                            // **更新進度和訊息**
+                            insertedCount += chunk.size
+                            val insertionProgress = 0.1f + (insertedCount.toFloat() / totalToInsert.toFloat()) * 0.9f
+                            updateProgress(insertionProgress, "寫入資料庫... ($insertedCount / $totalToInsert)")
+                            Log.d(TAG, "已批次插入 ${chunk.size} 筆主詞條及其關聯發音...")
+                        }
                     } else {
                         Log.w(TAG, "警告：從 ${source.name} 解析到的資料數量為 0。")
                     }
-                }
-
-                if (allItems.isNotEmpty()) {
-                    updateProgress(0.9f, "正在將 ${allItems.size} 筆總資料寫入資料庫 (這一步會很久)...")
-                    // 為避免單次交易過大，我們分批插入
-                    allItems.chunked(5000).forEach { chunk ->
-                        idiomDao.insertAll(chunk)
-                        Log.d(TAG, "已插入 ${chunk.size} 筆資料...")
-                    }
-                    Log.d(TAG, "所有資料寫入完成。")
-                } else {
-                    Log.e(TAG, "！！！！！！！！！！！！！！！！！！！！！！！！")
-                    Log.e(TAG, "警告：所有辭典都沒有解析到任何資料。")
-                    Log.e(TAG, "！！！！！！！！！！！！！！！！！！！！！！！！")
                 }
 
                 updateProgress(1.0f, "建立索引完成！")
@@ -72,48 +90,49 @@ class DictionaryRepository(val idiomDao: IdiomDao) {
         }
     }
 
-    private suspend fun downloadAndParse(urlString: String, source: String): List<Idiom> {
+    // downloadAndParse 及之後的函式保持不變
+    private suspend fun downloadAndParse(urlString: String, source: String): List<ParsedIdiomHolder> {
         return withContext(Dispatchers.IO) {
             try {
                 Log.d(TAG, "downloadAndParse: 開始執行 $urlString")
                 val url = URL(urlString)
                 val connection = url.openConnection() as HttpsURLConnection
                 connection.setRequestProperty("User-Agent", "Mozilla/5.0")
-                connection.connectTimeout = 60000 // 60 秒
-                connection.readTimeout = 600000 // 10 分鐘
+                connection.connectTimeout = 60000
+                connection.readTimeout = 600000
                 connection.connect()
 
                 if (connection.responseCode != HttpsURLConnection.HTTP_OK) {
                     Log.e(TAG, "downloadAndParse: 連線失敗 (回應碼: ${connection.responseCode}) for $urlString")
-                    return@withContext emptyList<Idiom>()
+                    return@withContext emptyList()
                 }
 
                 Log.d(TAG, "downloadAndParse: 連線成功，準備讀取 JSON 串流。")
 
-                val idioms = connection.inputStream.use { inputStream ->
+                val items = connection.inputStream.use { inputStream ->
                     parseJsonStream(inputStream, source)
                 }
 
-                Log.d(TAG, "downloadAndParse: JSON 讀取與解析完畢，總共找到 ${idioms.size} 筆資料。")
-                idioms
+                Log.d(TAG, "downloadAndParse: JSON 讀取與解析完畢，總共找到 ${items.size} 筆資料。")
+                items
             } catch (e: Exception) {
                 Log.e(TAG, "downloadAndParse: 下載或解析時失敗 for $urlString", e)
-                emptyList<Idiom>()
+                emptyList()
             }
         }
     }
 
-    private fun parseJsonStream(inputStream: InputStream, source: String): List<Idiom> {
+    private fun parseJsonStream(inputStream: InputStream, source: String): List<ParsedIdiomHolder> {
         val reader = JsonReader(inputStream.bufferedReader())
-        val idioms = mutableListOf<Idiom>()
+        val items = mutableListOf<ParsedIdiomHolder>()
         var count = 0
 
         try {
             reader.beginArray()
             while (reader.hasNext()) {
-                readIdiomObject(reader, source)?.let { idioms.add(it) }
+                readIdiomObject(reader, source)?.let { items.add(it) }
                 count++
-                if (count > 0 && count % 5000 == 0) {
+                if (count > 0 && count % 10000 == 0) {
                     Log.d(TAG, "($source) 已解析 $count 筆資料...")
                 }
             }
@@ -124,11 +143,11 @@ class DictionaryRepository(val idiomDao: IdiomDao) {
             reader.close()
         }
 
-        Log.i(TAG, "($source) 串流解析完成，總共 ${idioms.size} 筆。")
-        return idioms
+        Log.i(TAG, "($source) 串流解析完成，總共 ${items.size} 筆。")
+        return items
     }
 
-    private fun readIdiomObject(reader: JsonReader, source: String): Idiom? {
+    private fun readIdiomObject(reader: JsonReader, source: String): ParsedIdiomHolder? {
         var title = ""
         val pronunciations = mutableListOf<PronunciationItem>()
         var radical: String? = null
@@ -159,14 +178,14 @@ class DictionaryRepository(val idiomDao: IdiomDao) {
         }
 
         return if (title.isNotBlank() && pronunciations.any { it.definitions?.isNotEmpty() == true }) {
-            Idiom(
+            val idiom = Idiom(
                 term = title,
-                pronunciations = pronunciations,
                 source = source,
                 radical = radical,
                 strokeCount = strokeCount,
                 nonRadicalStrokeCount = nonRadicalStrokeCount
             )
+            ParsedIdiomHolder(idiom, pronunciations)
         } else {
             if (title.isNotBlank()) {
                 Log.w(TAG, "詞條 '$title' 找不到任何有效的定義，已跳過。")
@@ -224,17 +243,17 @@ class DictionaryRepository(val idiomDao: IdiomDao) {
                     "def" -> def = reader.nextString()
                     "example" -> {
                         reader.beginArray()
-                        while(reader.hasNext()) examples.add(reader.nextString())
+                        while (reader.hasNext()) examples.add(reader.nextString())
                         reader.endArray()
                     }
                     "quote" -> {
                         reader.beginArray()
-                        while(reader.hasNext()) quotes.add(reader.nextString())
+                        while (reader.hasNext()) quotes.add(reader.nextString())
                         reader.endArray()
                     }
                     "link" -> {
                         reader.beginArray()
-                        while(reader.hasNext()) links.add(reader.nextString())
+                        while (reader.hasNext()) links.add(reader.nextString())
                         reader.endArray()
                     }
                     else -> reader.skipValue()
