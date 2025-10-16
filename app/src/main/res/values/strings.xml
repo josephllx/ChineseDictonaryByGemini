@@ -1,3 +1,18 @@
 <resources>
-    <string name="app_name">Chinese Dictonary_gemini</string>
+    <string name="app_name">Offline ML Dictionary</string>
+    <string name="description_headline">English → Chinese, on your device</string>
+    <string name="description_body">Translate English words or phrases into Traditional Chinese with Google’s ML Kit offline translation model.</string>
+    <string name="input_label">English text</string>
+    <string name="input_placeholder">Type the word or phrase to translate</string>
+    <string name="input_supporting_text">The translation model runs entirely on device after the initial download.</string>
+    <string name="translate_action">Translate</string>
+    <string name="translating_label">Translating…</string>
+    <string name="clear_action">Clear result</string>
+    <string name="model_downloading_label">Downloading the offline translation model…</string>
+    <string name="model_ready_label">Offline translation ready</string>
+    <string name="model_missing_label">Download the offline model to translate without an internet connection.</string>
+    <string name="retry_download_action">Download model</string>
+    <string name="translation_source_title">Original text</string>
+    <string name="translation_result_title">Translation</string>
+    <string name="translation_placeholder_message">Enter a word above and tap translate to see the result here.</string>
 </resources>

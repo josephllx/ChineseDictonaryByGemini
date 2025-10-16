@@ -1,4 +1,4 @@
-package com.example.chinesedictonary_gemini
+package com.example.offlineen2zh
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -15,19 +15,20 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 
 /**
- * UI data shown on the dictionary screen.
+ * Immutable view data for the translation screen.
  */
 data class TranslationUiState(
-    val inputText: String = "",
-    val translatedText: String = "",
+    val query: String = "",
+    val translation: String? = null,
+    val lastTranslatedInput: String? = null,
     val isModelDownloading: Boolean = false,
-    val isModelReady: Boolean = false,
+    val isModelDownloaded: Boolean = false,
     val isTranslating: Boolean = false,
     val errorMessage: String? = null
 )
 
 /**
- * ViewModel responsible for downloading the ML Kit translation model and performing lookups.
+ * Coordinates downloading the ML Kit on-device translation model and running lookups.
  */
 class TranslationViewModel : ViewModel() {
 
@@ -42,30 +43,30 @@ class TranslationViewModel : ViewModel() {
     val uiState: StateFlow<TranslationUiState> = _uiState.asStateFlow()
 
     init {
-        viewModelScope.launch { ensureModelReady() }
+        viewModelScope.launch { downloadModelIfNecessary() }
     }
 
-    fun updateInputText(newText: String) {
+    fun updateQuery(text: String) {
         _uiState.update { current ->
-            current.copy(inputText = newText, errorMessage = null)
+            current.copy(query = text, errorMessage = null)
         }
     }
 
     fun clearTranslation() {
         _uiState.update { current ->
-            current.copy(translatedText = "", errorMessage = null)
+            current.copy(translation = null, lastTranslatedInput = null, errorMessage = null)
         }
     }
 
-    fun translateCurrentText() {
-        val textToTranslate = _uiState.value.inputText.trim()
+    fun translate() {
+        val textToTranslate = _uiState.value.query.trim()
         if (textToTranslate.isEmpty()) {
-            _uiState.update { it.copy(translatedText = "", errorMessage = "請先輸入英文單字或片語") }
+            _uiState.update { it.copy(errorMessage = "請先輸入要翻譯的英文內容。") }
             return
         }
 
         viewModelScope.launch {
-            if (!ensureModelReady()) {
+            if (!downloadModelIfNecessary()) {
                 return@launch
             }
 
@@ -74,24 +75,37 @@ class TranslationViewModel : ViewModel() {
                 val translated = translator.translate(textToTranslate).await()
                 _uiState.update {
                     it.copy(
-                        translatedText = translated,
-                        isTranslating = false,
-                        errorMessage = null
+                        translation = translated,
+                        lastTranslatedInput = textToTranslate,
+                        isTranslating = false
                     )
                 }
             } catch (error: Exception) {
                 _uiState.update {
                     it.copy(
                         isTranslating = false,
-                        errorMessage = "翻譯失敗：${error.localizedMessage ?: error.message ?: "未知錯誤"}"
+                        errorMessage = error.localizedMessage?.let { message ->
+                            "翻譯失敗：$message"
+                        } ?: "翻譯失敗，請稍後再試。"
                     )
                 }
             }
         }
     }
 
-    private suspend fun ensureModelReady(): Boolean {
-        if (_uiState.value.isModelReady) {
+    fun retryModelDownload() {
+        viewModelScope.launch { downloadModelIfNecessary(force = true) }
+    }
+
+    fun consumeErrorMessage() {
+        if (_uiState.value.errorMessage != null) {
+            _uiState.update { it.copy(errorMessage = null) }
+        }
+    }
+
+    private suspend fun downloadModelIfNecessary(force: Boolean = false): Boolean {
+        val current = _uiState.value
+        if (current.isModelDownloaded && !force) {
             return true
         }
 
@@ -99,13 +113,21 @@ class TranslationViewModel : ViewModel() {
         return try {
             val conditions = DownloadConditions.Builder().build()
             translator.downloadModelIfNeeded(conditions).await()
-            _uiState.update { it.copy(isModelDownloading = false, isModelReady = true) }
+            _uiState.update {
+                it.copy(
+                    isModelDownloading = false,
+                    isModelDownloaded = true
+                )
+            }
             true
         } catch (error: Exception) {
             _uiState.update {
                 it.copy(
                     isModelDownloading = false,
-                    errorMessage = "模型下載失敗：${error.localizedMessage ?: error.message ?: "未知錯誤"}"
+                    isModelDownloaded = false,
+                    errorMessage = error.localizedMessage?.let { message ->
+                        "模型下載失敗：$message"
+                    } ?: "模型下載失敗，請檢查網路連線。"
                 )
             }
             false
@@ -113,7 +135,7 @@ class TranslationViewModel : ViewModel() {
     }
 
     override fun onCleared() {
-        super.onCleared()
         translator.close()
+        super.onCleared()
     }
 }
