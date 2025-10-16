@@ -83,6 +83,12 @@ dependencies {
     // --- Kotlinx Serialization 函式庫 ---
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.3")
 
+    // Google ML Kit - on-device translation
+    implementation("com.google.mlkit:translate:17.0.2")
+
+    // Coroutine extensions for Google Play Services tasks (used with ML Kit)
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.8.1")
+
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.6.1")
