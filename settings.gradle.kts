@@ -19,6 +19,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "Chinese Dictonary_gemini"
+rootProject.name = "Offline ML Dictionary"
 include(":app")
- 
